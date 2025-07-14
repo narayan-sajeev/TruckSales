@@ -74,16 +74,14 @@ def load_and_filter_data(filepath: str) -> gpd.GeoDataFrame:
     # Extract coordinates
     gdf["lat"] = gdf.geometry.y
     gdf["lon"] = gdf.geometry.x
-    
+
     # Filter for truck-relevant businesses with progress bar
     initial_count = len(gdf)
-    
+
     # Create a mask with progress bar
     tqdm.pandas(desc="Filtering businesses")
     mask = gdf["business_name"].progress_apply(is_truck_relevant)
     gdf = gdf[mask].copy()
-    
-    print(f"   Found {len(gdf):,} truck-relevant businesses")
     
     # Filter out Canadian businesses
     tqdm.pandas(desc="Filtering Canadian businesses")
@@ -162,7 +160,7 @@ def main():
     
     # Load and filter data
     gdf = load_and_filter_data(INPUT_FILE)
-    
+
     # Analyze patterns
     analyze_patterns(gdf)
     

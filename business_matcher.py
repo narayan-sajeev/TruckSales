@@ -122,7 +122,7 @@ def get_grid_key(lat: float, lon: float, grid_size: float = 0.01):
     Returns:
         Tuple of (lat_cell, lon_cell)
     """
-    return (int(lat / grid_size), int(lon / grid_size))
+    return int(lat / grid_size), int(lon / grid_size)
 
 
 def get_name_blocks(name: str) -> str:
@@ -245,7 +245,6 @@ def check_matching_field(row1: pd.Series, row2: pd.Series, field: str) -> bool:
 def are_businesses_similar(
         row1: pd.Series,
         row2: pd.Series,
-        name_threshold: int = 80,
         distance_km: float = 0.5
 ) -> bool:
     """
@@ -259,7 +258,6 @@ def are_businesses_similar(
     Args:
         row1: First business record
         row2: Second business record
-        name_threshold: Minimum name similarity score (0-100)
         distance_km: Maximum distance in kilometers
 
     Returns:
@@ -401,7 +399,6 @@ def group_similar_businesses_fast(df: pd.DataFrame, show_progress: bool = True):
     
     # Track which pairs we've already compared
     compared_pairs = set()
-    total_comparisons = 0
     matches_found = 0
     
     # Strategy: Check geographic blocks first (fewer comparisons)
@@ -410,7 +407,7 @@ def group_similar_businesses_fast(df: pd.DataFrame, show_progress: bool = True):
     
     geo_comparisons = 0
     for indices in geo_blocks.values():
-        if len(indices) >= 2 and len(indices) <= 20:  # Skip very large blocks
+        if 2 <= len(indices) <= 20:  # Skip very large blocks
             for i in range(len(indices)):
                 for j in range(i + 1, len(indices)):
                     idx1, idx2 = indices[i], indices[j]
