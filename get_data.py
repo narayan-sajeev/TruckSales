@@ -19,7 +19,7 @@ import geopandas as gpd
 from tqdm import tqdm
 import time
 
-from business_matcher import group_similar_businesses_fast, merge_business_group
+from business_matcher import group_similar_businesses_fast, merge_business_group, parse_list
 from business_filters import is_truck_relevant, clean_business_name, analyze_patterns, is_canadian_business
 
 # Configuration constants
@@ -74,9 +74,6 @@ def load_and_filter_data(filepath: str) -> gpd.GeoDataFrame:
     gdf["lat"] = gdf.geometry.y
     gdf["lon"] = gdf.geometry.x
 
-    # Filter for truck-relevant businesses with progress bar
-    initial_count = len(gdf)
-
     # Create a mask with progress bar
     tqdm.pandas(desc="Filtering businesses")
     mask = gdf["business_name"].progress_apply(is_truck_relevant)
@@ -115,13 +112,18 @@ def deduplicate_businesses(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
     """
     # Convert to regular DataFrame and reset index
     df = pd.DataFrame(gdf)
-    df = df.reset_index(drop=True)  # Critical: ensure sequential indices
+    df = df.reset_index(drop=True)
+
+    # Normalize contact fields first
+    for col in ['websites', 'phones', 'emails', 'socials']:
+        df[col] = df[col].apply(parse_list)
 
     # Group similar businesses
     print("\n🔍 Performing fuzzy matching...")
     if FAST_MODE:
         print("   ⚡ Fast mode enabled - using optimized settings")
     start_time = time.time()
+
     business_groups = group_similar_businesses_fast(df, show_progress=True)
     matching_time = time.time() - start_time
 
