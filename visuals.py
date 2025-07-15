@@ -3,7 +3,6 @@ Launch Datasette visualization for truck sales data.
 """
 import sqlite3
 import subprocess
-import sys
 
 import pandas as pd
 
@@ -16,8 +15,4 @@ with sqlite3.connect("truck_sales.db") as conn:
 print(f"Created database with {len(df):,} records")
 
 # Launch Datasette
-try:
-    subprocess.run(["datasette", "truck_sales.db"])
-except FileNotFoundError:
-    print("Datasette not installed. Install with: pip install datasette")
-    sys.exit(1)
+subprocess.run(["datasette", "truck_sales.db"])
