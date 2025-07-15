@@ -53,20 +53,21 @@ def filter_truck_businesses(gdf):
     return gdf
 
 
+def clean_name(name):
+    if not isinstance(name, str):
+        return None
+
+    # Basic cleaning
+    name = re.sub(r'["\']', '', name)  # Remove quotes
+    name = re.sub(r'\s+', ' ', name)  # Normalize whitespace
+    name = name.strip()
+
+    # Title case unless already uppercase
+    return name if name.isupper() else name.title()
+
+
 def clean_business_names(gdf):
     """Clean business names in GeoDataFrame."""
-
-    def clean_name(name):
-        if not isinstance(name, str):
-            return None
-
-        # Basic cleaning
-        name = re.sub(r'["\']', '', name)  # Remove quotes
-        name = re.sub(r'\s+', ' ', name)  # Normalize whitespace
-        name = name.strip()
-
-        # Title case unless already uppercase
-        return name if name.isupper() else name.title()
 
     gdf["business_name"] = gdf["business_name"].apply(clean_name)
 
