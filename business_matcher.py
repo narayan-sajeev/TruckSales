@@ -60,7 +60,7 @@ def parse_list_field(value):
 
 
 def clean_phone(phone):
-    """Clean and format phone number as a simple string."""
+    """Clean and format phone number for comparison."""
     if not phone or pd.isna(phone):
         return None
 
@@ -82,9 +82,6 @@ def clean_phone(phone):
     # For US numbers without country code, add 1
     if len(phone_clean) == 10:
         phone_clean = '1' + phone_clean
-
-    # Format as a string
-    phone_clean = "'" + phone_clean + "'"
 
     return phone_clean
 
@@ -121,30 +118,36 @@ def are_businesses_similar(row1, row2, max_distance_km=0.5):
     2. Very similar name + close location → same business
     3. Otherwise → different businesses
     """
-    # Quick distance check
+    # Calculate distance
     distance = haversine_distance(
         row1['lat'], row1['lon'],
         row2['lat'], row2['lon']
     )
-
-    if distance > 50:  # Too far apart
-        return False
 
     # Check website match (strong signal)
     if pd.notna(row1.get('websites')) and pd.notna(row2.get('websites')):
         domain1 = extract_domain(row1['websites'])
         domain2 = extract_domain(row2['websites'])
 
-        if domain1 and domain2:
-            if domain1 == domain2:
-                return True  # Same website = same business
-            else:
-                return False  # Different websites = different businesses
+        if domain1 and domain2 and domain1 == domain2:
+            # Same website - check if reasonable distance (within 10km for same business)
+            if distance <= 10:
+                return True
 
     # Check phone match (strong signal)
     if pd.notna(row1.get('phones')) and pd.notna(row2.get('phones')):
-        if str(row1['phones']) == str(row2['phones']):
-            return True
+        # Compare cleaned phone numbers
+        phone1_clean = clean_phone(row1['phones'])
+        phone2_clean = clean_phone(row2['phones'])
+        
+        if phone1_clean and phone2_clean and phone1_clean == phone2_clean:
+            # Same phone - check if reasonable distance (within 10km for same business)
+            if distance <= 10:
+                return True
+
+    # If businesses are too far apart and don't share website/phone, they're different
+    if distance > 50:
+        return False
 
     # Name similarity check
     name1 = str(row1['business_name']) if pd.notna(row1['business_name']) else ""
@@ -185,12 +188,10 @@ def deduplicate_businesses(df):
     # First clean the data
     print("   Cleaning contact fields...")
 
-    # Clean all list fields
+    # Clean all list fields but keep phones as cleaned numbers for comparison
     for field in ['websites', 'socials', 'emails', 'phones']:
         if field in df.columns:
-            if field == 'phones':
-                df[field] = df[field].apply(clean_phone)
-            else:
+            if field != 'phones':
                 df[field] = df[field].apply(parse_list_field)
 
     n = len(df)
@@ -242,7 +243,13 @@ def deduplicate_businesses(df):
     merged_records = []
     for indices in groups.values():
         if len(indices) == 1:
-            merged_records.append(df.loc[indices[0]].to_dict())
+            record = df.loc[indices[0]].to_dict()
+            # Format phone back with quotes if it exists
+            if pd.notna(record.get('phones')):
+                cleaned = clean_phone(record['phones'])
+                if cleaned:
+                    record['phones'] = "'" + cleaned + "'"
+            merged_records.append(record)
         else:
             # Take the record with the longest name
             group = df.loc[indices]
@@ -252,6 +259,12 @@ def deduplicate_businesses(df):
             record = df.loc[best_idx].to_dict()
             record['lat'] = group['lat'].mean()
             record['lon'] = group['lon'].mean()
+            
+            # Format phone back with quotes if it exists
+            if pd.notna(record.get('phones')):
+                cleaned = clean_phone(record['phones'])
+                if cleaned:
+                    record['phones'] = "'" + cleaned + "'"
 
             merged_records.append(record)
 
