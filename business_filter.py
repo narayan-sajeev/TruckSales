@@ -1,7 +1,11 @@
 """
 Business filtering utilities for identifying truck-relevant businesses.
 """
+
 import re
+
+# Threshold for info confidence
+CONFIDENCE_THRESHOLD = 0.9
 
 # Core patterns for truck-relevant businesses
 TRUCK_KEYWORDS = [
@@ -39,6 +43,9 @@ def is_truck_relevant(name):
 
 def filter_truck_businesses(gdf):
     """Filter GeoDataFrame for truck-relevant US businesses."""
+    # Confidence threshold
+    gdf = gdf[gdf["confidence"] >= CONFIDENCE_THRESHOLD]
+
     # Filter by business name
     mask = gdf["business_name"].apply(is_truck_relevant)
     gdf = gdf[mask].copy()
