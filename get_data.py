@@ -14,7 +14,6 @@ from business_matcher import deduplicate_businesses
 # Configuration
 INPUT_FILE = "northeast_places.parquet"
 OUTPUT_FILE = "truck_sales_targets.csv"
-ENABLE_DEDUPLICATION = True
 
 
 def extract_coordinates(gdf):
@@ -82,10 +81,9 @@ gdf = load_and_process_data(INPUT_FILE)
 # Convert to DataFrame for deduplication
 df = pd.DataFrame(gdf).reset_index(drop=True)
 
-# Deduplicate if enabled
-if ENABLE_DEDUPLICATION:
-    df = deduplicate_businesses(df)
-    print(f"   After deduplication: {len(df):,} unique businesses")
+# Deduplicate
+df = deduplicate_businesses(df)
+print(f"   After deduplication: {len(df):,} unique businesses")
 
 # Prepare and save output
 result = prepare_output(df)
