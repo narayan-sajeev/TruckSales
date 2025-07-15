@@ -119,9 +119,6 @@ def deduplicate_businesses(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
         df[col] = df[col].apply(parse_list)
 
     # Group similar businesses
-    print("\n🔍 Performing fuzzy matching...")
-    if FAST_MODE:
-        print("   ⚡ Fast mode enabled - using optimized settings")
     start_time = time.time()
 
     business_groups = group_similar_businesses_fast(df, show_progress=True)
