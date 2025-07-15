@@ -1,204 +1,94 @@
 """
-Business filtering and classification utilities for identifying truck-relevant businesses.
-
-This module contains:
-- Pattern definitions for identifying businesses that buy tractor trailers
-- Exclusion logic to filter out irrelevant businesses
-- Business name cleaning and normalization functions
-- Pattern analysis utilities
+Business filtering utilities for identifying truck-relevant businesses.
 """
 import re
-import pandas as pd
 
-# Tractor trailer-relevant search pattern
-# Focus on businesses that actually need/use tractor trailers
-TRUCK_PATTERN = re.compile(
-    r"\b(towing|tow\b|trucking|transport|freight|logistics|hauling|"
-    r"excavation|construction|paving|asphalt|concrete|demolition)\b",
-    re.IGNORECASE
-)
-
-# Exclude patterns that look like tow but aren't
-# Also exclude small contractors that don't need tractor trailers
-EXCLUDE_PATTERN = re.compile(
-    r"\b(tower|towers|towel|towels|stow|stowage|towne|township|"
-    r"plumber|plumbing|electrician|electrical|electric\b|hvac|"
-    r"heating|cooling|air\s+conditioning|handyman|repair\s+service)\b",
-    re.IGNORECASE
-)
-
-# Terms that indicate non-relevant businesses
-EXCLUSION_KEYWORDS = [
-    "town of", "city of", "village of",
-    "school", "university", "college",
-    "church", "mosque", "temple", "synagogue",
-    "apartment", "condo", "housing",
-    "hospital", "clinic", "medical", "dental", "health",
-    "restaurant", "cafe", "diner", "pizza", "food",
-    "law office", "attorney", "lawyer", "legal",
-    "bank", "credit union", "insurance",
-    "hair", "salon", "spa", "nails",
-    "daycare", "child care"
+# Core patterns for truck-relevant businesses
+TRUCK_KEYWORDS = [
+    "towing", "tow", "trucking", "transport", "freight", "logistics",
+    "hauling", "excavation", "construction", "paving", "asphalt",
+    "concrete", "demolition"
 ]
 
-# Strong indicators that override exclusions
-STRONG_TRUCK_INDICATORS = [
-    "towing", "trucking", "transport", "construction",
-    "excavation", "hauling", "freight"
-]
-
-# Pattern categories for analysis
-PATTERN_CATEGORIES = [
-    ("Towing services", r"\b(towing|tow\b)"),
-    ("Trucking/Transport", r"\b(trucking|transport|freight|logistics|hauling)"),
-    ("Construction/Excavation", r"\b(construction|excavation|demolition)"),
-    ("Paving/Concrete", r"\b(paving|asphalt|concrete)"),
+# Exclusions (false positives and small contractors)
+EXCLUDE_KEYWORDS = [
+    # False positives for "tow"
+    "tower", "towel", "stow", "towne", "township",
+    # Small contractors unlikely to need tractor trailers
+    "plumber", "electrician", "hvac", "handyman",
+    # Non-business entities
+    "town of", "city of", "school", "church", "apartment",
+    "hospital", "restaurant", "bank", "salon"
 ]
 
 
-def is_truck_relevant(name: str) -> bool:
-    """
-    Determine if a business name is relevant to tractor trailer sales.
-    
-    Args:
-        name: Business name to check
-        
-    Returns:
-        True if business is truck-relevant, False otherwise
-    """
-    if not isinstance(name, str):
+def is_truck_relevant(name):
+    """Check if business name indicates truck relevance."""
+    if not isinstance(name, str) or not name:
         return False
 
     name_lower = name.lower()
 
-    # First, check if it contains any excluded patterns (false positives for "tow")
-    if EXCLUDE_PATTERN.search(name_lower):
-        # But allow if it also has strong truck indicators
-        if not any(indicator in name_lower for indicator in STRONG_TRUCK_INDICATORS):
-            return False
+    # Quick exclusion check
+    if any(exclude in name_lower for exclude in EXCLUDE_KEYWORDS):
+        return False
 
-    # Check for exclusion keywords
-    for ex in EXCLUSION_KEYWORDS:
-        if ex in name_lower:
-            return False
-
-    # Check for truck-relevant patterns
-    return bool(TRUCK_PATTERN.search(name_lower))
+    # Check for truck keywords
+    return any(keyword in name_lower for keyword in TRUCK_KEYWORDS)
 
 
-def clean_business_name(name: str) -> str:
-    """
-    Clean and normalize business name for display.
-    
-    Args:
-        name: Raw business name
-        
-    Returns:
-        Cleaned business name or None
-    """
-    if not isinstance(name, str):
-        return None
+def filter_truck_businesses(gdf):
+    """Filter GeoDataFrame for truck-relevant US businesses."""
+    # Filter by business name
+    mask = gdf["business_name"].apply(is_truck_relevant)
+    gdf = gdf[mask].copy()
 
-    # Remove quotes and extra whitespace
-    name = name.replace('"', '').replace("'", "").strip()
-    name = re.sub(r"\s+", " ", name)
+    # Filter out Canadian businesses
+    if "addresses" in gdf.columns:
+        us_mask = gdf["addresses"].apply(
+            lambda x: x[0]["country"] != "CA" if x else True
+        )
+        gdf = gdf[us_mask]
 
-    # Convert to title case unless already all uppercase
-    return name if name.isupper() else name.title()
+    return gdf
 
 
-def normalize_for_matching(name: str) -> str:
-    """
-    Normalize business name for comparison by removing common suffixes and punctuation.
-    This is more aggressive than clean_business_name and is used for matching.
-    
-    Args:
-        name: Business name
-        
-    Returns:
-        Normalized name for matching
-    """
+def clean_business_names(gdf):
+    """Clean business names in GeoDataFrame."""
+
+    def clean_name(name):
+        if not isinstance(name, str):
+            return None
+
+        # Basic cleaning
+        name = re.sub(r'["\']', '', name)  # Remove quotes
+        name = re.sub(r'\s+', ' ', name)  # Normalize whitespace
+        name = name.strip()
+
+        # Title case unless already uppercase
+        return name if name.isupper() else name.title()
+
+    gdf["business_name"] = gdf["business_name"].apply(clean_name)
+
+    # Remove empty names
+    return gdf[gdf["business_name"].notna() & (gdf["business_name"] != "")]
+
+
+def normalize_for_matching(name):
+    """Normalize name for fuzzy matching comparisons."""
     if not name:
         return ""
 
-    name_lower = name.lower().strip()
+    # Lowercase and remove business suffixes
+    name = name.lower().strip()
 
-    # Remove common business suffixes
-    suffixes = [
-        ' llc', ' inc', ' incorporated', ' corp', ' corporation', ' ltd', ' limited',
-        ' co', ' company', ' enterprises', ' enterprise', ' services', ' service',
-        ' and sons', ' & sons', ' and son', ' & son', ' son', ' sons',
-        ' and associates', ' & associates', ' associate', ' associates'
-    ]
+    # Common suffixes to remove
+    for suffix in [' llc', ' inc', ' corp', ' ltd', ' co']:
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
 
-    for suffix in suffixes:
-        if name_lower.endswith(suffix):
-            name_lower = name_lower[:-len(suffix)].strip()
+    # Remove punctuation and normalize whitespace
+    name = re.sub(r'[^\w\s]', ' ', name)
+    name = re.sub(r'\s+', ' ', name).strip()
 
-    # Remove punctuation and extra spaces
-    name_lower = re.sub(r'[^\w\s]', ' ', name_lower)
-    name_lower = re.sub(r'\s+', ' ', name_lower).strip()
-
-    # Replace 'and' with '&' for consistency
-    name_lower = name_lower.replace(' and ', ' & ')
-
-    return name_lower
-
-
-def analyze_patterns(df: pd.DataFrame) -> None:
-    """
-    Analyze which patterns matched the businesses in the dataframe.
-    
-    Args:
-        df: DataFrame with 'business_name' column
-    """
-    print("\n📈 Pattern Analysis:")
-
-    total = len(df)
-    if total == 0:
-        print("   No businesses to analyze")
-        return
-
-    for pattern_name, pattern in PATTERN_CATEGORIES:
-        regex = re.compile(pattern, re.IGNORECASE)
-        matches = df["business_name"].apply(
-            lambda x: bool(regex.search(x)) if pd.notna(x) else False
-        ).sum()
-        percentage = (matches / total * 100)
-        print(f"   • {pattern_name}: {matches:,} ({percentage:.1f}%)")
-
-
-def is_canadian_business(row: pd.Series) -> bool:
-    """
-    Determine if a business is Canadian based on address.
-
-    Args:
-        row: Business record with name, website, and other fields
-
-    Returns:
-        True if business appears to be Canadian
-    """
-    return row["addresses"][0]["country"] == "CA"
-
-
-def get_business_category(name: str) -> str:
-    """
-    Get the primary category for a business based on its name.
-    
-    Args:
-        name: Business name
-        
-    Returns:
-        Primary category string
-    """
-    if not name:
-        return "Unknown"
-
-    name_lower = name.lower()
-
-    # Check each category pattern
-    for category_name, pattern in PATTERN_CATEGORIES:
-        if re.search(pattern, name_lower, re.IGNORECASE):
-            return category_name
-
-    return "Other"
+    return name
