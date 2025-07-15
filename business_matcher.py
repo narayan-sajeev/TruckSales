@@ -6,13 +6,14 @@ This module contains functions for:
 - Performing fuzzy name matching with blocking for efficiency
 - Merging duplicate business records while preserving all information
 """
+import ast
+import re
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 from fuzzywuzzy import fuzz
-from collections import defaultdict
 from tqdm import tqdm
-import re
 
 from business_filters import normalize_for_matching
 
@@ -242,6 +243,83 @@ def check_matching_field(row1: pd.Series, row2: pd.Series, field: str) -> bool:
     return False
 
 
+# Normalize URLs for comparison
+def normalize_url(s):
+    s = s.lower().strip()
+    s = re.sub(r'^https?://(www\.)?', '', s)
+    return s.rstrip('/')
+
+
+def extract_domain(url):
+    """Extract the base domain from a URL."""
+    if not url or url == 'nan' or url == 'None':
+        return ''
+
+    # Handle case where url might be a list in string format
+    url_str = str(url).strip()
+    if url_str.startswith('[') and url_str.endswith(']'):
+        # It's a list, extract first URL
+        try:
+            url_list = ast.literal_eval(url_str)
+            if url_list and len(url_list) > 0:
+                url = url_list[0]
+            else:
+                return ''
+        except:
+            # If parsing fails, try to extract URL from string
+            match = re.search(r'https?://[^\s,\]]+', url_str)
+            if match:
+                url = match.group(0)
+            else:
+                return ''
+
+    normalized = normalize_url(str(url))
+    # Get just the domain part (before the first /)
+    domain = normalized.split('/')[0]
+    return domain
+
+
+def parse_website_field(websites_value):
+    """
+    Parse the websites field which might be a string, list, or string representation of a list.
+
+    Args:
+        websites_value: The value from the websites column
+
+    Returns:
+        Set of domain names
+    """
+    domains = set()
+
+    if pd.isna(websites_value):
+        return domains
+
+    websites_str = str(websites_value).strip()
+
+    # Handle list in string format like "['url1', 'url2']"
+    if websites_str.startswith('[') and websites_str.endswith(']'):
+        try:
+            websites_list = ast.literal_eval(websites_str)
+            for url in websites_list:
+                domain = extract_domain(url)
+                if domain:
+                    domains.add(domain)
+        except:
+            # If parsing fails, try to extract URLs using regex
+            urls = re.findall(r'https?://[^\s,\]\'\"]+', websites_str)
+            for url in urls:
+                domain = extract_domain(url)
+                if domain:
+                    domains.add(domain)
+    else:
+        # Single URL
+        domain = extract_domain(websites_str)
+        if domain:
+            domains.add(domain)
+
+    return domains
+
+
 def are_businesses_similar(
         row1: pd.Series,
         row2: pd.Series,
@@ -263,6 +341,21 @@ def are_businesses_similar(
     Returns:
         True if businesses are likely the same entity
     """
+
+    # Enforce strict website domain matching
+    # If both rows have websites and domains don't match, they are DIFFERENT businesses
+    w1 = row1.get("websites")
+    w2 = row2.get("websites")
+
+    if pd.notna(w1) and pd.notna(w2):
+        # Parse website fields to get domain sets
+        domains1 = parse_website_field(w1)
+        domains2 = parse_website_field(w2)
+
+        # If both have domains and there's no overlap, they're different businesses
+        if domains1 and domains2 and not (domains1 & domains2):
+            return False
+
     # Extract business names
     name1 = str(row1['business_name']) if pd.notna(row1['business_name']) else ""
     name2 = str(row2['business_name']) if pd.notna(row2['business_name']) else ""
@@ -472,6 +565,101 @@ def group_similar_businesses_fast(df: pd.DataFrame, show_progress: bool = True):
     return list(groups.values())
 
 
+def parse_list(value):
+    """
+    Convert messy string-encoded lists or semicolon-separated fields into clean, deduplicated lists or scalars.
+
+    Enhancements:
+    - Deduplicates entries intelligently (ignores case, trailing slashes, and leading 'www.' for URLs).
+    - Flattens single-item lists to a scalar.
+    - Returns np.nan for empty or null input.
+
+    Args:
+        value: Raw input from a CSV/DataFrame cell (str, list, np.nan, etc.)
+
+    Returns:
+        - list of strings (if multiple unique items)
+        - single string (if exactly one unique item)
+        - np.nan (if none)
+    """
+
+    def normalize(item):
+        s = item.strip().lower()
+        # If it's a URL, strip trailing slash and leading 'www.'
+        if s.startswith(("http://", "https://")):
+            proto, rest = s.split("://", 1)
+            rest = rest.rstrip("/")  # drop trailing slash
+            if rest.startswith("www."):  # drop www.
+                rest = rest[len("www."):]
+            return f"{proto}://{rest}"
+        return s  # for non-URL items, just lowercase/stripped
+
+    # 1) Missing input → np.nan
+    if pd.isna(value):
+        return np.nan
+
+    # 2) Gather "raw_items" from list or semicolon-separated/ast-literal strings
+    if isinstance(value, list):
+        raw_items = value
+    elif isinstance(value, str):
+        raw_items = []
+        for part in value.split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                parsed = ast.literal_eval(part)
+                if isinstance(parsed, list):
+                    raw_items.extend(parsed)
+                else:
+                    raw_items.append(str(parsed))
+            except (ValueError, SyntaxError):
+                raw_items.append(part)
+    else:
+        # Other types (e.g. numbers) → string
+        return str(value).strip()
+
+    # 3) Deduplicate via normalized keys, but preserve cleaned original
+    seen = {}
+    for item in raw_items:
+        cleaned = str(item).strip()
+        key = normalize(cleaned)
+        if key and key not in seen:
+            seen[key] = cleaned
+
+    unique_cleaned = list(seen.values())
+
+    # 4) Return according to count
+    if not unique_cleaned:
+        return np.nan
+    if len(unique_cleaned) == 1:
+        return unique_cleaned[0]
+    return unique_cleaned
+
+
+def clean_merged_record(record: dict) -> dict:
+    """
+    Clean up a merged business record by removing empty fields and normalizing values.
+
+    Args:
+        record: Dictionary containing merged business information
+
+    Returns:
+        Cleaned dictionary with only relevant fields
+    """
+
+    # Return a cleaned dictionary with all fields normalized
+    return {
+        "business_name": record.get("business_name"),
+        "lat": record.get("lat"),
+        "lon": record.get("lon"),
+        "websites": parse_list(record.get("websites")),
+        "socials": parse_list(record.get("socials")),
+        "emails": parse_list(record.get("emails")),
+        "phones": parse_list(record.get("phones")),
+    }
+
+
 def merge_business_group(df: pd.DataFrame, indices):
     """
     Merge a group of similar businesses, retaining all information.
@@ -521,4 +709,7 @@ def merge_business_group(df: pd.DataFrame, indices):
         else:
             merged_record[field] = np.nan
 
-    return merged_record
+    # Clean up the merged record
+    cleaned_record = clean_merged_record(merged_record)
+
+    return cleaned_record
