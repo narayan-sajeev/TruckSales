@@ -5,15 +5,15 @@ import re
 
 # Core patterns for truck-relevant businesses
 TRUCK_KEYWORDS = [
-    "towing", "tow", "trucking", "transport", "freight", "logistics",
+    "towing", "tow", "tows", "trucking", "transport", "freight", "logistics",
     "hauling", "excavation", "construction", "paving", "asphalt",
-    "concrete", "demolition"
+    "concrete", "demolition", "garage", "repair"
 ]
 
 # Exclusions (false positives and small contractors)
 EXCLUDE_KEYWORDS = [
     # False positives for "tow"
-    "tower", "towel", "stow", "towne", "township",
+    "tower", "towel", "stow", "towne", "town", "township",
     # Small contractors unlikely to need tractor trailers
     "plumber", "electrician", "hvac", "handyman",
     # Non-business entities
