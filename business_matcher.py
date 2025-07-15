@@ -212,35 +212,67 @@ def check_matching_field(row1: pd.Series, row2: pd.Series, field: str) -> bool:
         val1 = str(row1[field]).strip()
         val2 = str(row2[field]).strip()
 
-        # For websites, normalize and check similarity
+        # For websites, we need to check if ANY website matches
         if field == 'websites':
-            # Remove http/https and www
-            norm1 = re.sub(r'^https?://(www\.)?', '', val1.lower())
-            norm2 = re.sub(r'^https?://(www\.)?', '', val2.lower())
-
-            # Remove trailing slashes
-            norm1 = norm1.rstrip('/')
-            norm2 = norm2.rstrip('/')
-
-            # Check if they're the same domain
-            if norm1 == norm2:
-                return True
-
-            # Check if one is a subdomain of the other
-            if norm1.startswith(norm2) or norm2.startswith(norm1):
-                return True
-
-            # Check if they share the same base domain (e.g., sjs-construction.ca)
-            base1 = norm1.split('/')[0]
-            base2 = norm2.split('/')[0]
-            if base1 == base2:
-                return True
+            # Parse both website fields to get all URLs
+            urls1 = extract_all_urls(val1)
+            urls2 = extract_all_urls(val2)
+            
+            # Normalize all URLs
+            domains1 = set()
+            for url in urls1:
+                domain = extract_domain(url)
+                if domain:
+                    domains1.add(domain)
+                    
+            domains2 = set()
+            for url in urls2:
+                domain = extract_domain(url)
+                if domain:
+                    domains2.add(domain)
+            
+            # Check if there's any overlap in domains
+            return bool(domains1 & domains2)
 
         else:
             # For other fields, exact match
             return val1 == val2
 
     return False
+
+
+def extract_all_urls(value):
+    """Extract all URLs from a value that might be a string, list, or string representation of a list."""
+    urls = []
+    
+    if not value or value == 'nan' or value == 'None':
+        return urls
+    
+    value_str = str(value).strip()
+    
+    # If it's a list in string format
+    if value_str.startswith('[') and value_str.endswith(']'):
+        try:
+            # Try to parse as Python list
+            url_list = ast.literal_eval(value_str)
+            if isinstance(url_list, list):
+                urls.extend([str(u) for u in url_list if u])
+        except:
+            # Fall back to regex extraction
+            found_urls = re.findall(r'https?://[^\s,\]\'\"]+', value_str)
+            urls.extend(found_urls)
+    else:
+        # Single URL or semicolon-separated
+        if ';' in value_str:
+            parts = value_str.split(';')
+            for part in parts:
+                part = part.strip()
+                if part.startswith('http'):
+                    urls.append(part)
+        else:
+            urls.append(value_str)
+    
+    return urls
 
 
 # Normalize URLs for comparison
@@ -254,70 +286,30 @@ def extract_domain(url):
     """Extract the base domain from a URL."""
     if not url or url == 'nan' or url == 'None':
         return ''
-
-    # Handle case where url might be a list in string format
+    
     url_str = str(url).strip()
-    if url_str.startswith('[') and url_str.endswith(']'):
-        # It's a list, extract first URL
-        try:
-            url_list = ast.literal_eval(url_str)
-            if url_list and len(url_list) > 0:
-                url = url_list[0]
-            else:
-                return ''
-        except:
-            # If parsing fails, try to extract URL from string
-            match = re.search(r'https?://[^\s,\]]+', url_str)
-            if match:
-                url = match.group(0)
-            else:
-                return ''
-
-    normalized = normalize_url(str(url))
+    
+    # If it somehow still has list notation, extract the URL
+    if url_str.startswith('['):
+        match = re.search(r'https?://[^\s,\]]+', url_str)
+        if match:
+            url_str = match.group(0)
+        else:
+            return ''
+    
+    normalized = normalize_url(url_str)
     # Get just the domain part (before the first /)
     domain = normalized.split('/')[0]
+    
+    # Remove port numbers if present
+    domain = domain.split(':')[0]
+    
+    # Extract the main domain (remove subdomain variations like www)
+    # This is already handled in normalize_url, but let's be sure
+    if domain.startswith('www.'):
+        domain = domain[4:]
+    
     return domain
-
-
-def parse_website_field(websites_value):
-    """
-    Parse the websites field which might be a string, list, or string representation of a list.
-
-    Args:
-        websites_value: The value from the websites column
-
-    Returns:
-        Set of domain names
-    """
-    domains = set()
-
-    if pd.isna(websites_value):
-        return domains
-
-    websites_str = str(websites_value).strip()
-
-    # Handle list in string format like "['url1', 'url2']"
-    if websites_str.startswith('[') and websites_str.endswith(']'):
-        try:
-            websites_list = ast.literal_eval(websites_str)
-            for url in websites_list:
-                domain = extract_domain(url)
-                if domain:
-                    domains.add(domain)
-        except:
-            # If parsing fails, try to extract URLs using regex
-            urls = re.findall(r'https?://[^\s,\]\'\"]+', websites_str)
-            for url in urls:
-                domain = extract_domain(url)
-                if domain:
-                    domains.add(domain)
-    else:
-        # Single URL
-        domain = extract_domain(websites_str)
-        if domain:
-            domains.add(domain)
-
-    return domains
 
 
 def are_businesses_similar(
@@ -342,40 +334,47 @@ def are_businesses_similar(
         True if businesses are likely the same entity
     """
 
-    # Enforce strict website domain matching
-    # If both rows have websites and domains don't match, they are DIFFERENT businesses
-    w1 = row1.get("websites")
-    w2 = row2.get("websites")
-
-    if pd.notna(w1) and pd.notna(w2):
-        # Parse website fields to get domain sets
-        domains1 = parse_website_field(w1)
-        domains2 = parse_website_field(w2)
-
-        # If both have domains and there's no overlap, they're different businesses
-        if domains1 and domains2 and not (domains1 & domains2):
-            return False
-
     # Extract business names
     name1 = str(row1['business_name']) if pd.notna(row1['business_name']) else ""
     name2 = str(row2['business_name']) if pd.notna(row2['business_name']) else ""
 
     # Quick exact match check (cheap)
     if name1 == name2:
-        # For exact name matches, be more lenient with distance
+        # For exact name matches, check if they have the same website
+        w1 = row1.get("websites")
+        w2 = row2.get("websites")
+        
+        if pd.notna(w1) and pd.notna(w2):
+            if check_matching_field(row1, row2, 'websites'):
+                return True  # Same name + same website = definitely same business
+            else:
+                # Same name but different websites = different businesses (e.g., franchises)
+                return False
+        
+        # For exact name matches with at least one missing website, check other criteria
         distance = haversine_distance(row1['lat'], row1['lon'], row2['lat'], row2['lon'])
 
         # If exact name and any matching contact info, consider them the same
         has_matching_phone = check_matching_field(row1, row2, 'phones')
-        has_matching_website = check_matching_field(row1, row2, 'websites')
         has_matching_email = check_matching_field(row1, row2, 'emails')
 
-        if has_matching_phone or has_matching_website or has_matching_email:
-            return True  # Same name + same contact = same business, regardless of distance
+        if has_matching_phone or has_matching_email:
+            return True  # Same name + same contact = same business
 
         # If exact name but no matching contact info, only merge if very close
-        if distance <= 5:  # 5km for exact name matches
+        if distance <= 1:  # 1km for exact name matches without matching info
             return True
+
+        return False  # Same name but far apart and no matching info = different businesses
+
+    # For non-exact name matches, enforce stricter website checking
+    w1 = row1.get("websites")
+    w2 = row2.get("websites")
+    
+    if pd.notna(w1) and pd.notna(w2):
+        # Both have websites - they must match to be considered similar
+        if not check_matching_field(row1, row2, 'websites'):
+            return False
 
     # Quick distance check first (cheapest operation)
     distance = haversine_distance(row1['lat'], row1['lon'], row2['lat'], row2['lon'])
@@ -567,25 +566,23 @@ def group_similar_businesses_fast(df: pd.DataFrame, show_progress: bool = True):
 
 def parse_list(value):
     """
-    Convert messy string-encoded lists or semicolon-separated fields into clean, deduplicated lists or scalars.
-
-    Enhancements:
-    - Deduplicates entries intelligently (ignores case, trailing slashes, and leading 'www.' for URLs).
-    - Flattens single-item lists to a scalar.
-    - Returns np.nan for empty or null input.
+    Convert messy string-encoded lists or semicolon-separated fields into a single clean value.
+    
+    This function now returns a single URL (the first one) rather than a list,
+    to avoid creating list-formatted output.
 
     Args:
         value: Raw input from a CSV/DataFrame cell (str, list, np.nan, etc.)
 
     Returns:
-        - list of strings (if multiple unique items)
-        - single string (if exactly one unique item)
+        - single string (the first/primary URL or value)
         - np.nan (if none)
     """
 
-    def normalize(item):
+    def normalize_for_dedup(item):
+        """Normalize for deduplication checking only"""
         s = item.strip().lower()
-        # If it's a URL, strip trailing slash and leading 'www.'
+        # If it's a URL, strip trailing slash and normalize
         if s.startswith(("http://", "https://")):
             proto, rest = s.split("://", 1)
             rest = rest.rstrip("/")  # drop trailing slash
@@ -593,48 +590,86 @@ def parse_list(value):
                 rest = rest[len("www."):]
             return f"{proto}://{rest}"
         return s  # for non-URL items, just lowercase/stripped
+    
+    def clean_url(url):
+        """Clean a URL while preserving the protocol for clickability"""
+        url = url.strip()
+        # If it's missing a protocol, add one
+        if not url.startswith(('http://', 'https://')):
+            # If it starts with www, use http
+            if url.startswith('www.'):
+                url = 'http://' + url
+            else:
+                # Check if it looks like a URL
+                if '.' in url and not url.startswith('.') and not url.endswith('.'):
+                    url = 'http://' + url
+        # Remove trailing slashes
+        url = url.rstrip('/')
+        return url
 
     # 1) Missing input → np.nan
     if pd.isna(value):
         return np.nan
 
     # 2) Gather "raw_items" from list or semicolon-separated/ast-literal strings
+    raw_items = []
+    
     if isinstance(value, list):
         raw_items = value
     elif isinstance(value, str):
-        raw_items = []
-        for part in value.split(";"):
-            part = part.strip()
-            if not part:
-                continue
+        value_str = value.strip()
+        
+        # Handle list in string format
+        if value_str.startswith('[') and value_str.endswith(']'):
             try:
-                parsed = ast.literal_eval(part)
+                parsed = ast.literal_eval(value_str)
                 if isinstance(parsed, list):
-                    raw_items.extend(parsed)
+                    raw_items = parsed
                 else:
-                    raw_items.append(str(parsed))
-            except (ValueError, SyntaxError):
-                raw_items.append(part)
+                    raw_items = [value_str]
+            except:
+                # Extract URLs using regex
+                urls = re.findall(r'https?://[^\s,\]\'\"]+', value_str)
+                if urls:
+                    raw_items = urls
+                else:
+                    raw_items = [value_str]
+        else:
+            # Handle semicolon-separated values
+            for part in value_str.split(";"):
+                part = part.strip()
+                if part:
+                    raw_items.append(part)
+                    
+            # If no semicolons, just use the value as is
+            if not raw_items and value_str:
+                raw_items = [value_str]
     else:
         # Other types (e.g. numbers) → string
         return str(value).strip()
 
-    # 3) Deduplicate via normalized keys, but preserve cleaned original
+    # 3) Get unique items preserving order (but keep original formatting)
     seen = {}
     for item in raw_items:
         cleaned = str(item).strip()
-        key = normalize(cleaned)
-        if key and key not in seen:
-            seen[key] = cleaned
+        if cleaned and cleaned not in ['nan', 'None', '']:
+            # Use normalized version for dedup checking
+            key = normalize_for_dedup(cleaned)
+            if key and key not in seen:
+                # But store the cleaned version with protocol
+                if cleaned.lower().startswith(('http://', 'https://', 'www.')) or ('.' in cleaned and ' ' not in cleaned):
+                    # It's likely a URL - clean it properly
+                    seen[key] = clean_url(cleaned)
+                else:
+                    # Not a URL, store as is
+                    seen[key] = cleaned
 
     unique_cleaned = list(seen.values())
 
-    # 4) Return according to count
-    if not unique_cleaned:
-        return np.nan
-    if len(unique_cleaned) == 1:
+    # 4) Return the first valid item (not a list)
+    if unique_cleaned:
         return unique_cleaned[0]
-    return unique_cleaned
+    return np.nan
 
 
 def clean_merged_record(record: dict) -> dict:
@@ -664,6 +699,9 @@ def merge_business_group(df: pd.DataFrame, indices):
     """
     Merge a group of similar businesses, retaining all information.
     
+    IMPORTANT: This function should only be called when businesses are confirmed
+    to be the same entity (same website domain or strong matching criteria).
+    
     Args:
         df: DataFrame containing business records
         indices: List of row indices to merge
@@ -671,41 +709,38 @@ def merge_business_group(df: pd.DataFrame, indices):
     Returns:
         Dictionary containing merged business information
     """
+    # If only one business in the group, no merging needed
+    if len(indices) == 1:
+        row = df.iloc[indices[0]]
+        return clean_merged_record({
+            'business_name': row['business_name'],
+            'lat': row['lat'],
+            'lon': row['lon'],
+            'websites': row.get('websites'),
+            'socials': row.get('socials'),
+            'emails': row.get('emails'),
+            'phones': row.get('phones')
+        })
+    
     group = df.iloc[indices]
 
     # Select the longest/most complete business name
     names = group['business_name'].dropna().tolist()
     merged_name = max(names, key=len) if names else None
 
-    # Collect all contact information
-    contact_fields = {
-        'websites': [],
-        'socials': [],
-        'emails': [],
-        'phones': []
-    }
-
-    for _, row in group.iterrows():
-        for field in contact_fields:
-            if pd.notna(row[field]):
-                contact_fields[field].append(row[field])
-
-    # Calculate average location (centroid)
-    avg_lat = group['lat'].mean()
-    avg_lon = group['lon'].mean()
-
-    # Create merged record
+    # For contact fields, just take the first non-null value
+    # This avoids creating lists in the output
     merged_record = {
         'business_name': merged_name,
-        'lat': avg_lat,
-        'lon': avg_lon
+        'lat': group['lat'].mean(),
+        'lon': group['lon'].mean()
     }
-
-    # Process contact fields
-    for field, values in contact_fields.items():
-        merged_values = merge_values(values)
-        if isinstance(merged_values, list):
-            merged_record[field] = '; '.join(merged_values)
+    
+    # Get first non-null value for each contact field
+    for field in ['websites', 'socials', 'emails', 'phones']:
+        values = group[field].dropna()
+        if len(values) > 0:
+            merged_record[field] = values.iloc[0]
         else:
             merged_record[field] = np.nan
 
