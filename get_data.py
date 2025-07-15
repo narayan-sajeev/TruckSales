@@ -8,7 +8,7 @@ deduplicates similar entries, and exports a clean dataset.
 import geopandas as gpd
 import pandas as pd
 
-from business_filters import filter_truck_businesses, clean_business_names
+from business_filter import filter_truck_businesses, clean_business_names
 from business_matcher import deduplicate_businesses
 
 # Configuration

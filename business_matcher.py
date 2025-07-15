@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from business_filters import normalize_for_matching
+from business_filter import normalize_for_matching
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
