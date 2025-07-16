@@ -53,7 +53,7 @@ def filter_truck_businesses(gdf):
     # Filter out Canadian businesses
     if "addresses" in gdf.columns:
         us_mask = gdf["addresses"].apply(
-            lambda x: x[0]["country"] != "CA" if x else True
+            lambda x: x[0]["country"] == "US" if x else True
         )
         gdf = gdf[us_mask]
 

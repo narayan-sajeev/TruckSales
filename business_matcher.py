@@ -6,7 +6,6 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
 from business_filter import normalize_for_matching
 
@@ -187,7 +186,7 @@ def deduplicate_businesses(df):
     
     # Compare within cells
     comparisons = matches = 0
-    for _, group in tqdm(df.groupby('grid_key'), desc="Processing grid cells"):
+    for _, group in df.groupby('grid_key'):
         indices = group.index.tolist()
         if 2 <= len(indices) <= 50:
             for i, idx1 in enumerate(indices):

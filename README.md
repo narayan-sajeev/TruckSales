@@ -29,7 +29,7 @@ git clone https://github.com/narayan-sajeev/NETC.git
 cd NETC
 
 # Install dependencies
-pip install geopandas pandas numpy tqdm
+pip install geopandas pandas numpy
 
 # For visualization (optional)
 pip install datasette
