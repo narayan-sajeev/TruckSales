@@ -151,8 +151,8 @@ def merge_duplicates(group_df):
     
     if all_phones:
         sorted_phones = sorted(all_phones)
-        record['phones'] = (f"'{sorted_phones[0]}'" if len(sorted_phones) == 1 
-                          else "[" + ", ".join(f"'{p}'" for p in sorted_phones) + "]")
+        record['phones'] = (f"{sorted_phones[0]}" if len(sorted_phones) == 1
+                          else "[" + ", ".join(f"{p}" for p in sorted_phones) + "]")
     
     return record
 
@@ -209,7 +209,7 @@ def deduplicate_businesses(df):
         if len(indices) == 1:
             record = df.loc[indices[0]].to_dict()
             if phone := clean_phone(parse_list_field(record.get('phones'))):
-                record['phones'] = f"'{phone}'"
+                record['phones'] = f"{phone}"
         else:
             record = merge_duplicates(df.loc[indices])
         merged_records.append(record)
