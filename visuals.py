@@ -3,7 +3,6 @@ Launch Datasette visualization for truck sales data.
 """
 import sqlite3
 import subprocess
-
 import pandas as pd
 
 # Create SQLite database from CSV
