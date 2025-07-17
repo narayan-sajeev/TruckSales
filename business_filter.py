@@ -4,6 +4,8 @@ Business filtering utilities for identifying truck-relevant businesses.
 
 import re
 
+from tqdm import tqdm
+
 # Threshold for info confidence
 CONFIDENCE_THRESHOLD = 0.9
 
@@ -46,13 +48,14 @@ def filter_truck_businesses(gdf):
     # Confidence threshold
     gdf = gdf[gdf["confidence"] >= CONFIDENCE_THRESHOLD]
 
-    # Filter by business name
-    mask = gdf["business_name"].apply(is_truck_relevant)
+    # Filter by business name with progress bar
+    tqdm.pandas(desc="Checking business names")
+    mask = gdf["business_name"].progress_apply(is_truck_relevant)
     gdf = gdf[mask].copy()
 
     # Filter out Canadian businesses
     if "addresses" in gdf.columns:
-        us_mask = gdf["addresses"].apply(
+        us_mask = gdf["addresses"].progress_apply(
             lambda x: x[0]["country"] == "US" if x else True
         )
         gdf = gdf[us_mask]
@@ -75,8 +78,9 @@ def clean_name(name):
 
 def clean_business_names(gdf):
     """Clean business names in GeoDataFrame."""
+    print("Cleaning business names...")
 
-    gdf["business_name"] = gdf["business_name"].apply(clean_name)
+    gdf["business_name"] = gdf["business_name"].progress_apply(clean_name)
 
     # Remove empty names
     return gdf[gdf["business_name"].notna() & (gdf["business_name"] != "")]
