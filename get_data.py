@@ -5,16 +5,16 @@ Filters businesses relevant to tractor trailer sales, deduplicates similar entri
 removes businesses that exist in Hubspot, and checks against existing CSV records.
 """
 
+import os
+from datetime import datetime
+
 import geopandas as gpd
 import pandas as pd
-import os
-import glob
-from datetime import datetime
 
 from business_filter import filter_truck_businesses, clean_business_names
 from business_matcher import deduplicate_businesses
-from deconflict_hubspot import deconflict_with_hubspot
 from csv_deduplication import load_existing_records, check_against_existing
+from deconflict_hubspot import deconflict_with_hubspot
 
 # Configuration
 INPUT_FILE = "places.parquet"
