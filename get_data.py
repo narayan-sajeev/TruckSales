@@ -5,6 +5,7 @@ Process truck-related businesses from Overture dataset.
 # overturemaps download --bbox=-125.0,24.5,-66.8,49.5 --type=place -f geoparquet -o places.parquet
 
 import os
+import time
 from datetime import datetime
 
 import geopandas as gpd
@@ -95,12 +96,27 @@ def save_results(df, output_folder):
     print(f"\nSaved {len(df):,} businesses to {output_file}")
 
 
+def format_time(seconds):
+    """Format time in seconds to human readable format."""
+    if seconds < 60:
+        return f"{seconds:.1f} seconds"
+    elif seconds < 3600:
+        minutes = seconds / 60
+        return f"{minutes:.1f} minutes"
+    else:
+        hours = seconds / 3600
+        return f"{hours:.1f} hours"
+
+
 # Setup
 os.makedirs(CSV_FOLDER, exist_ok=True)
 
 print(f"\n{'=' * 60}")
 print("Truck Sales Target Processor")
 print(f"{'=' * 60}\n")
+
+# Start timing
+start_time = time.time()
 
 # Load and process data
 df = load_data(INPUT_FILE)
@@ -132,3 +148,11 @@ print(f"After checking existing CSVs: {len(df):,} new unique businesses")
 
 # Save results
 save_results(df, CSV_FOLDER)
+
+# Calculate and print total time
+end_time = time.time()
+total_time = end_time - start_time
+
+print(f"\n{'=' * 60}")
+print(f"Total execution time: {format_time(total_time)}")
+print(f"{'=' * 60}")
