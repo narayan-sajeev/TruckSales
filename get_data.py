@@ -2,20 +2,25 @@
 Process truck-related businesses from Overture dataset.
 
 Filters businesses relevant to tractor trailer sales, deduplicates similar entries,
-removes businesses that exist in Hubspot, and exports a clean dataset.
+removes businesses that exist in Hubspot, and checks against existing CSV records.
 """
 
 import geopandas as gpd
 import pandas as pd
+import os
+import glob
+from datetime import datetime
 
 from business_filter import filter_truck_businesses, clean_business_names
 from business_matcher import deduplicate_businesses
 from deconflict_hubspot import deconflict_with_hubspot
+from csv_deduplication import load_existing_records, check_against_existing
 
 # Configuration
 INPUT_FILE = "northeast_places.parquet"
 HUBSPOT_FILE = "hubspot.csv"
-OUTPUT_FILE = "truck_sales_targets.csv"
+CSV_FOLDER = "csv"
+OUTPUT_FILENAME_TEMPLATE = "targets_{}.csv"
 
 
 def extract_coordinates(gdf):
@@ -73,6 +78,15 @@ def prepare_output(df):
     return df.sort_values("business_name")
 
 
+def generate_output_filename():
+    """Generate unique filename with timestamp."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return OUTPUT_FILENAME_TEMPLATE.format(timestamp)
+
+
+# Create CSV folder if it doesn't exist
+os.makedirs(CSV_FOLDER, exist_ok=True)
+
 # Load and filter data
 gdf = load_and_process_data(INPUT_FILE)
 
@@ -87,12 +101,29 @@ print(f"After deduplication: {len(df):,} unique businesses")
 result = prepare_output(df)
 
 # Deconflict with Hubspot
-final_df = deconflict_with_hubspot(result, HUBSPOT_FILE)
+result = deconflict_with_hubspot(result, HUBSPOT_FILE)
+print(f"After Hubspot deconfliction: {len(result):,} businesses")
 
-# Save final results
-if 'phones' in final_df.columns:
-    final_df['phones'] = final_df['phones'].astype('string')
+# Load existing records from CSV folder
+existing_coords = load_existing_records(CSV_FOLDER)
+print(f"Loaded {len(existing_coords):,} existing coordinate pairs from CSV folder")
 
-final_df.to_csv(OUTPUT_FILE, index=False, float_format='%.6f')
+# Check against existing records
+final_df = check_against_existing(result, existing_coords)
+print(f"After checking existing CSVs: {len(final_df):,} new unique businesses")
 
-print(f"\nFinal: {len(final_df):,} businesses saved to {OUTPUT_FILE}")
+# Only save if there are new records
+if len(final_df) > 0:
+    # Generate output filename and path
+    output_filename = generate_output_filename()
+    output_path = os.path.join(CSV_FOLDER, output_filename)
+
+    # Save final results
+    if 'phones' in final_df.columns:
+        final_df['phones'] = final_df['phones'].astype('string')
+
+    final_df.to_csv(output_path, index=False, float_format='%.6f')
+
+    print(f"\nFinal: {len(final_df):,} businesses saved to {output_path}")
+else:
+    print("\nNo new businesses found. No file created.")

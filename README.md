@@ -1,25 +1,25 @@
-# Truck Sales Target Processor with Hubspot Deconfliction
+# Truck Sales Target Processor with CSV Deduplication
 
-A Python tool for extracting and processing truck-relevant businesses from Overture Maps data to identify potential tractor trailer sales targets, with automatic removal of existing Hubspot contacts.
+A Python tool for extracting and processing truck-relevant businesses from Overture Maps data to identify potential tractor trailer sales targets, with automatic deduplication against existing records and Hubspot contacts.
 
 ## Overview
 
-This project processes businesses from Overture Maps datasets through three stages:
+This project processes businesses from Overture Maps datasets through four stages:
 1. **Filters** businesses likely to need tractor trailers (towing, trucking, construction, etc.)
 2. **Deduplicates** similar entries based on location and contact info
 3. **Removes** businesses that already exist in your Hubspot CRM
+4. **Checks** against all previously processed records in the CSV folder to ensure no duplicates
 
-The result is a clean list of new sales leads that don't exist in your current CRM.
+The result is a clean list of NEW sales leads that don't exist in your current CRM or any previous exports.
 
 ## Features
 
 - **Smart Filtering**: Identifies truck-relevant businesses using keyword matching while excluding false positives
 - **Geographic Deduplication**: Merges duplicate businesses based on name similarity, location proximity, and matching contact information
-- **Hubspot Deconfliction**: Automatically removes businesses that already exist in your Hubspot database by matching:
-  - Phone numbers (with normalization)
-  - Company names (with normalization and exact matching)
-- **Single Output**: Produces one clean CSV file with all processing stages applied
-- **Conflict Reporting**: Generates a detailed report of which businesses were removed due to Hubspot conflicts
+- **Hubspot Deconfliction**: Automatically removes businesses that already exist in your Hubspot database
+- **CSV History Checking**: Prevents duplicate records across multiple runs by checking coordinates against all existing CSV files
+- **Timestamped Outputs**: Each run creates a uniquely named file with timestamp to prevent overwrites
+- **Zero Overlap Guarantee**: Ensures each new output file contains only businesses not in any previous file
 
 ## Installation
 
@@ -35,13 +35,14 @@ pip install geopandas pandas numpy
 pip install datasette
 ```
 
-## Required Files
+## Required Files and Folders
 
 Before running, ensure you have:
 1. `northeast_places.parquet` - Overture Maps data file
 2. `hubspot.csv` - Export from your Hubspot CRM with at least:
    - `Phone Number` column (for phone matching)
    - `Associated Company` column (for company name matching)
+3. `csv/` folder - Will be created automatically if it doesn't exist. This stores all output files.
 
 ## Usage
 
@@ -54,98 +55,117 @@ The script will:
 1. Load and filter businesses for truck relevance
 2. Remove geographic duplicates
 3. Remove businesses that exist in Hubspot
-4. Save the final clean list to `truck_sales_targets.csv`
+4. Check against ALL existing records in the CSV folder (based on lat/lon coordinates)
+5. Save only NEW businesses to a timestamped file in the CSV folder
 
-### Processing Stages
-
-The script shows progress through three stages:
+### Output Example
 
 ```
 Loaded 1,679,803 records
 Found 9,481 truck-relevant businesses
 After deduplication: 9,444 unique businesses
-Hubspot data: 4,224 phones, 859 companies
-Found 87 businesses with Hubspot conflicts
-Final: 9,357 businesses saved to truck_sales_targets.csv
+After Hubspot deconfliction: 9,357 businesses
+
+Loading existing records from 3 CSV files...
+  - targets_20240115_1430.csv: 9,357 records
+  - targets_20240116_0915.csv: 8,234 records
+  - targets_20240117_1530.csv: 7,891 records
+Loaded 25,482 existing coordinate pairs from CSV folder
+Found 9,357 businesses that already exist in CSV folder
+After checking existing CSVs: 0 new unique businesses
+
+Final: 0 businesses saved to csv/targets_20240118_1023.csv
 ```
 
 ## Output Files
 
-### truck_sales_targets.csv
-The main output file containing new leads not in Hubspot:
+### csv/targets_YYYYMMDD_HHMM.csv
+Each run creates a timestamped file containing only NEW leads:
 - `business_name`: Cleaned company name
 - `websites`: Company website
 - `socials`: Social media profiles
 - `emails`: Contact email addresses (typically null in Overture data)
 - `phones`: Phone numbers (formatted as strings)
-- `lat`, `lon`: Geographic coordinates
+- `lat`, `lon`: Geographic coordinates (used for deduplication)
 
-### hubspot_conflicts.csv
-Report of businesses removed because they exist in Hubspot:
-- `business_name`: Company that was removed
-- `reason`: Why it was removed (phone match or company name match)
+## Deduplication Process
 
-## Deconfliction Process
+### Coordinate-Based Checking
+The system uses latitude and longitude (rounded to 6 decimal places) as the unique identifier for businesses:
+- Ensures no business at the same location appears in multiple files
+- Handles variations in phone/website formatting that might differ between data sources
+- Provides ~0.1 meter precision for location matching
 
-The Hubspot deconfliction works by:
+### Why Coordinates?
+- Phone numbers and websites can have varying formats across different data sources
+- Business names might be slightly different in various datasets
+- Coordinates provide a consistent, reliable way to identify unique physical locations
 
-1. **Phone Number Matching**:
-   - Normalizes phone numbers (removes formatting, adds country code)
-   - Compares normalized numbers between datasets
-   - Handles various formats: "555-1234", "(555) 123-4567", "5551234567"
+## Working with Multiple Geographic Areas
 
-2. **Company Name Matching**:
-   - Normalizes company names (lowercase, removes LLC/Inc/Corp suffixes)
-   - Performs exact matching only (no substring matching)
-   - Prevents false positives from partial name matches
+The system is designed for processing different geographic regions:
 
-3. **Why No Domain Matching?**:
-   - Many businesses incorrectly list franchise/partner domains (e.g., uhaul.com, ryder.com)
-   - Email fields in Overture data are typically null
-   - Over 200 domains are shared by multiple unrelated businesses
-   - Domain matching led to many false positives
+1. **First Run**: Process your first area (e.g., northeast_places.parquet)
+   - Creates `csv/targets_20240118_0930.csv`
+   - All businesses are new
 
-## Configuration
+2. **Second Run**: Process a different area (e.g., midwest_places.parquet)
+   - Checks against the first file
+   - Only saves businesses not in the northeast
+   - Creates `csv/targets_20240118_1415.csv`
 
-Edit variables in `get_data.py`:
-- `INPUT_FILE`: Path to Overture parquet file (default: `northeast_places.parquet`)
-- `HUBSPOT_FILE`: Path to Hubspot export (default: `hubspot.csv`)
-- `OUTPUT_FILE`: Name for final output (default: `truck_sales_targets.csv`)
-- `CONFLICTS_FILE`: Name for conflicts report (default: `hubspot_conflicts.csv`)
+3. **Subsequent Runs**: Continue with other regions
+   - Each run checks against ALL previous files
+   - Ensures zero overlap across all outputs
 
 ## Visualization
 
-To explore the results interactively:
+To explore all collected data across multiple files:
 ```bash
 python visuals.py
 ```
 
-This launches Datasette for browsing and querying the final dataset.
+This:
+- Loads all CSV files from the csv folder
+- Combines them into a single database
+- Launches Datasette for browsing and querying the complete dataset
+- Includes source filename for tracking which file each record came from
 
 ## Module Structure
 
-- `get_data.py`: Main processing script that orchestrates all three stages
+- `get_data.py`: Main processing script with CSV checking integration
+- `csv_deduplication.py`: New module for loading and checking against existing CSV records
 - `business_filter.py`: Business filtering and name cleaning utilities
 - `business_matcher.py`: Deduplication logic using geographic blocking
 - `deconflict_hubspot.py`: Hubspot deconfliction using phone and company name matching
-- `visuals.py`: Datasette visualization launcher
+- `visuals.py`: Updated to visualize all CSV files combined
+
+## SharePoint Integration
+
+The timestamped output files make it easy to upload to SharePoint:
+- Each file has a unique name preventing overwrites
+- Files contain only new businesses not in previous uploads
+- Can upload files sequentially as you process different regions
+- No manual file renaming required
 
 ## Performance
 
-- Processes ~1.7M businesses down to ~9,000 relevant targets in under a minute
-- Efficiently handles deduplication using geographic blocking
-- Fast phone number and company name matching for Hubspot deconfliction
-- Typically removes 50-150 businesses due to Hubspot conflicts
+- Processes ~1.7M businesses efficiently
+- Coordinate checking is fast using Python sets
+- Handles thousands of existing records without significant slowdown
+- Memory efficient for large datasets
 
 ## Troubleshooting
 
-If you get an error about missing Hubspot file:
-- Ensure `hubspot.csv` is in the same directory as the script
-- Check that the CSV has `Phone Number` and `Associated Company` columns
-- Verify the file path in the `HUBSPOT_FILE` configuration
+If all businesses show as duplicates:
+- Check if you're processing the same geographic area twice
+- Verify the input parquet file is from a new region
+- Ensure the CSV folder contains the expected files
 
-If conflicts seem incorrect:
-- Review the `hubspot_conflicts.csv` file
-- Phone matches are based on normalized numbers (digits only)
-- Company matches require exact normalized name matches
-- No domain matching is performed due to data quality issues
+If the CSV folder is missing:
+- The script creates it automatically
+- Check you have write permissions in the current directory
+
+To reset and start fresh:
+- Move or delete all files from the csv folder
+- The next run will treat all businesses as new
