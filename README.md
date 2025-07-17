@@ -38,7 +38,7 @@ pip install datasette
 ## Required Files and Folders
 
 Before running, ensure you have:
-1. `northeast_places.parquet` - Overture Maps data file
+1. `places.parquet` - Overture Maps data file
 2. `hubspot.csv` - Export from your Hubspot CRM with at least:
    - `Phone Number` column (for phone matching)
    - `Associated Company` column (for company name matching)
@@ -105,11 +105,11 @@ The system uses latitude and longitude (rounded to 6 decimal places) as the uniq
 
 The system is designed for processing different geographic regions:
 
-1. **First Run**: Process your first area (e.g., northeast_places.parquet)
+1. **First Run**: Process your first area (e.g., places.parquet from northeast region)
    - Creates `csv/targets_20240118_0930.csv`
    - All businesses are new
 
-2. **Second Run**: Process a different area (e.g., midwest_places.parquet)
+2. **Second Run**: Process a different area (e.g., places.parquet from midwest region)
    - Checks against the first file
    - Only saves businesses not in the northeast
    - Creates `csv/targets_20240118_1415.csv`

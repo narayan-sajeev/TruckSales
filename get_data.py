@@ -17,7 +17,7 @@ from deconflict_hubspot import deconflict_with_hubspot
 from csv_deduplication import load_existing_records, check_against_existing
 
 # Configuration
-INPUT_FILE = "northeast_places.parquet"
+INPUT_FILE = "places.parquet"
 HUBSPOT_FILE = "hubspot.csv"
 CSV_FOLDER = "csv"
 OUTPUT_FILENAME_TEMPLATE = "targets_{}.csv"
