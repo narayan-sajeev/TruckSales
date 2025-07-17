@@ -1,8 +1,5 @@
 """
 Process truck-related businesses from Overture dataset.
-
-Filters businesses relevant to tractor trailer sales, deduplicates similar entries,
-removes businesses that exist in Hubspot, and checks against existing CSV records.
 """
 
 import os
@@ -20,110 +17,116 @@ from deconflict_hubspot import deconflict_with_hubspot
 INPUT_FILE = "places.parquet"
 HUBSPOT_FILE = "hubspot.csv"
 CSV_FOLDER = "csv"
-OUTPUT_FILENAME_TEMPLATE = "targets_{}.csv"
+OUTPUT_TEMPLATE = "targets_{}.csv"
 
 
-def extract_coordinates(gdf):
-    """Extract lat/lon from geometry."""
-    gdf["lat"] = gdf.geometry.y
-    gdf["lon"] = gdf.geometry.x
-    return gdf
+def load_data(filepath):
+    """Load parquet file and extract coordinates."""
+    print(f"Loading {filepath}...")
+
+    # Try loading with lat/lon columns first (fastest)
+    try:
+        df = pd.read_parquet(filepath, columns=['names', 'lat', 'lon', 'confidence',
+                                                'addresses', 'websites', 'socials', 'emails', 'phones'])
+        print(f"Loaded {len(df):,} records with lat/lon")
+        return df
+    except:
+        pass
+
+    # Fall back to loading with geometry
+    try:
+        gdf = gpd.read_parquet(filepath, columns=['names', 'geometry', 'confidence',
+                                                  'addresses', 'websites', 'socials', 'emails', 'phones'])
+        print(f"Loaded {len(gdf):,} records with geometry")
+
+        # Extract coordinates
+        print("Extracting coordinates...")
+        df = pd.DataFrame(gdf)
+        df['lat'] = gdf.geometry.y
+        df['lon'] = gdf.geometry.x
+        return df.drop(columns=['geometry'])
+    except Exception as e:
+        print(f"Error loading file: {e}")
+        exit(1)
 
 
-def load_and_process_data(filepath):
-    """Load data and perform initial processing."""
-    # Load and extract names
-    gdf = gpd.read_parquet(filepath)
-    print(f"Loaded {len(gdf):,} records")
-
-    # Extract business names (handle dict/string formats)
-    gdf["business_name"] = gdf["names"].apply(
-        lambda x: x.get("primary") if isinstance(x, dict) else x
+def process_business_names(df):
+    """Extract business names from names column."""
+    print("Processing business names...")
+    df['business_name'] = df['names'].apply(
+        lambda x: x.get('primary') if isinstance(x, dict) else x
     )
-
-    # Extract coordinates
-    gdf = extract_coordinates(gdf)
-
-    # Filter for US truck businesses
-    gdf = filter_truck_businesses(gdf)
-    print(f"Found {len(gdf):,} truck-relevant businesses")
-
-    # Clean names
-    gdf = clean_business_names(gdf)
-
-    return gdf
+    return df.drop(columns=['names'])
 
 
 def prepare_output(df):
-    """Prepare final output with selected columns."""
-    output_cols = [
-        "business_name", "websites", "socials",
-        "emails", "phones", "lat", "lon"
-    ]
+    """Prepare dataframe for output with required columns."""
+    output_cols = ['business_name', 'websites', 'socials', 'emails', 'phones', 'lat', 'lon']
 
     # Ensure all columns exist
     for col in output_cols:
         if col not in df.columns:
             df[col] = None
 
-    # Clean empty values
+    # Select columns and clean empty values
     df = df[output_cols].copy()
-
-    # Replace empty strings and lists with None
     for col in ['websites', 'socials', 'emails', 'phones']:
-        df[col] = df[col].replace('', None)
-        df[col] = df[col].replace('[]', None)
-        df[col] = df[col].replace("['']", None)
+        df[col] = df[col].replace(['', '[]', "['']"], None)
 
-    return df.sort_values("business_name")
+    return df.sort_values('business_name')
 
 
-def generate_output_filename():
-    """Generate unique filename with timestamp."""
+def save_results(df, output_folder):
+    """Save results to timestamped CSV file."""
+    if len(df) == 0:
+        print("\nNo new businesses found. No file created.")
+        return
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    return OUTPUT_FILENAME_TEMPLATE.format(timestamp)
+    output_file = os.path.join(output_folder, OUTPUT_TEMPLATE.format(timestamp))
+
+    # Ensure phones are saved as strings
+    if 'phones' in df.columns:
+        df['phones'] = df['phones'].astype('string')
+
+    df.to_csv(output_file, index=False, float_format='%.6f')
+    print(f"\nSaved {len(df):,} businesses to {output_file}")
 
 
-# Create CSV folder if it doesn't exist
+# Setup
 os.makedirs(CSV_FOLDER, exist_ok=True)
 
-# Load and filter data
-gdf = load_and_process_data(INPUT_FILE)
+print(f"\n{'=' * 60}")
+print("Truck Sales Target Processor")
+print(f"{'=' * 60}\n")
 
-# Convert to DataFrame for deduplication
-df = pd.DataFrame(gdf).reset_index(drop=True)
+# Load and process data
+df = load_data(INPUT_FILE)
+df = process_business_names(df)
+
+# Filter for truck businesses
+df = filter_truck_businesses(df)
+print(f"Found {len(df):,} truck-relevant businesses")
+
+df = clean_business_names(df)
 
 # Deduplicate
 df = deduplicate_businesses(df)
 print(f"After deduplication: {len(df):,} unique businesses")
 
-# Prepare data structure
-result = prepare_output(df)
+# Prepare output format
+df = prepare_output(df)
 
-# Deconflict with Hubspot
-result = deconflict_with_hubspot(result, HUBSPOT_FILE)
-print(f"After Hubspot deconfliction: {len(result):,} businesses")
+# Remove Hubspot conflicts
+df = deconflict_with_hubspot(df, HUBSPOT_FILE)
+print(f"After Hubspot deconfliction: {len(df):,} businesses")
 
-# Load existing records from CSV folder
+# Check against existing CSVs
 existing_coords = load_existing_records(CSV_FOLDER)
-print(f"Loaded {len(existing_coords):,} existing coordinate pairs from CSV folder")
+print(f"Loaded {len(existing_coords):,} existing coordinate pairs")
 
-# Check against existing records
-final_df = check_against_existing(result, existing_coords)
-print(f"After checking existing CSVs: {len(final_df):,} new unique businesses")
+df = check_against_existing(df, existing_coords)
+print(f"After checking existing CSVs: {len(df):,} new unique businesses")
 
-# Only save if there are new records
-if len(final_df) > 0:
-    # Generate output filename and path
-    output_filename = generate_output_filename()
-    output_path = os.path.join(CSV_FOLDER, output_filename)
-
-    # Save final results
-    if 'phones' in final_df.columns:
-        final_df['phones'] = final_df['phones'].astype('string')
-
-    final_df.to_csv(output_path, index=False, float_format='%.6f')
-
-    print(f"\nFinal: {len(final_df):,} businesses saved to {output_path}")
-else:
-    print("\nNo new businesses found. No file created.")
+# Save results
+save_results(df, CSV_FOLDER)
