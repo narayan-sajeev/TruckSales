@@ -12,20 +12,49 @@ CONFIDENCE_THRESHOLD = 0.9
 
 # Core patterns for truck-relevant businesses
 TRUCK_KEYWORDS = [
-    "towing", "tow", "tows", "trucking", "transport", "freight", "logistics",
-    "hauling", "excavation", "construction", "paving", "asphalt",
-    "concrete", "demolition", "garage", "repair"
+    # Core freight and logistics
+    "truck", "trucks", "trucking", "trailer", "trailers",
+    "freight", "logistics", "transport", "transportation", "ltl",
+
+    # Heavy-duty construction and related services
+    "hauling", "haul", "excavation", "excavating",
+    "construction", "grading", "sitework", "aggregates",
+    "paving", "asphalt", "concrete",
+
+    # Fleet maintenance / repair services
+    "diesel", "repair", "tow", "towing", "tows",
+
+    # Commercial rental and equipment providers
+    "equipment", "rental"
 ]
 
 # Exclusions (false positives and small contractors)
 EXCLUDE_KEYWORDS = [
-    # False positives for "tow"
-    "tower", "towel", "stow", "towne", "town", "township",
-    # Small contractors unlikely to need tractor trailers
-    "plumber", "electrician", "hvac", "handyman",
-    # Non-business entities
-    "town of", "city of", "school", "church", "apartment",
-    "hospital", "restaurant", "bank", "salon"
+    # Residential & consumer services
+    "accessories", "apartment", "bank", "budget", "car", "care", "cellphone", "cellphones",
+    "cleaners", "cleaning", "furniture", "homes", "home", "hospital", "ice",
+    "jewelry", "luxury", "mattress", "moving", "party", "phone", "phones", "piano",
+    "pianos", "plumber", "restaurant", "rug", "rugs", "rv", "salon", "school",
+    "shoe", "shoes", "storage", "vacation", "watch", "watches",
+
+    # Musical instrument / non-fleet commercial
+    "eyeglass", "eyeglasses", "woodwind", "woodwinds",
+
+    # Auto/consumer repair & parts chains
+    "advance", "auto", "autozone", "automotive", "body", "collision", "computer",
+    "detailing", "firestone", "ford", "glass", "mazda", "medical", "motor", "motors",
+    "napa", "oreilly", "penske", "shop", "tire", "tools", "toyota", "wash",
+
+    # Local and non-commercial government
+    "church", "city of", "county", "department", "park", "town", "town of", "township",
+    "tower", "towne",
+
+    # Generic consultants / irrelevant businesses
+    "consultants", "credit", "dream", "electrician", "emissions", "event", "handyman",
+    "hvac", "pc", "training", "wireless",
+
+    # High-volume brand noise
+    "fedex", "harbor", "saia"
 ]
 
 
