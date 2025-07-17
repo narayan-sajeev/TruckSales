@@ -2,6 +2,8 @@
 Process truck-related businesses from Overture dataset.
 """
 
+# overturemaps download --bbox=-125.0,24.5,-66.8,49.5 --type=place -f geoparquet -o places.parquet
+
 import os
 from datetime import datetime
 
