@@ -16,7 +16,6 @@ from deconflict_hubspot import deconflict_with_hubspot
 INPUT_FILE = "northeast_places.parquet"
 HUBSPOT_FILE = "hubspot.csv"
 OUTPUT_FILE = "truck_sales_targets.csv"
-CONFLICTS_FILE = "hubspot_conflicts.csv"
 
 
 def extract_coordinates(gdf):
@@ -88,7 +87,7 @@ print(f"After deduplication: {len(df):,} unique businesses")
 result = prepare_output(df)
 
 # Deconflict with Hubspot
-final_df = deconflict_with_hubspot(result, HUBSPOT_FILE, CONFLICTS_FILE)
+final_df = deconflict_with_hubspot(result, HUBSPOT_FILE)
 
 # Save final results
 if 'phones' in final_df.columns:

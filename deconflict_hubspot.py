@@ -104,7 +104,7 @@ def check_conflicts(row, hubspot_phones, hubspot_companies):
     return conflict_reasons
 
 
-def deconflict_with_hubspot(truck_df, hubspot_file, conflicts_file):
+def deconflict_with_hubspot(truck_df, hubspot_file):
     """Remove businesses that exist in Hubspot."""
     # Load Hubspot data
     hubspot_phones, hubspot_companies = load_hubspot_data(hubspot_file)
@@ -142,14 +142,5 @@ def deconflict_with_hubspot(truck_df, hubspot_file, conflicts_file):
     clean_df = truck_df.drop(indices_to_remove).reset_index(drop=True)
 
     print(f"Found {len(conflicts):,} businesses with Hubspot conflicts")
-
-    # Save conflicts report
-    if conflicts:
-        conflicts_df = pd.DataFrame(list(conflicts.values()))
-        conflicts_df['reason'] = conflicts_df['reason'].apply(lambda x: '; '.join(x))
-        # Remove indices column from output
-        if 'indices' in conflicts_df.columns:
-            conflicts_df = conflicts_df.drop('indices', axis=1)
-        conflicts_df.to_csv(conflicts_file, index=False)
 
     return clean_df
