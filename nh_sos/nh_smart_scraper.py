@@ -23,7 +23,18 @@ SEARCH_TERMS = [
     "truck",  # Currently running
     "freight",  # High-value term
     "transport",  # Broad coverage
-    "excavation"  # Construction sector
+    "excavation",  # Construction sector
+    "trailer",
+    "ltl",
+    "haul",
+    "grading",
+    "sitework",
+    "aggregates",
+    "paving",
+    "asphalt",
+    "concrete",
+    "diesel",
+    "towing",
 ]
 
 # Timing configuration
