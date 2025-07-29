@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import random
+import re
 from datetime import datetime
 
 import pandas as pd
@@ -26,8 +27,8 @@ SEARCH_TERMS = [
 ]
 
 # Timing configuration
-MIN_WAIT = 60  # Reduced from 90 - evidence shows no blocks at higher pages
-MAX_WAIT = 75  # Reduced from 110 - saves ~2 hours total
+MIN_WAIT = 45  # Reduced from 90 - evidence shows no blocks at higher pages
+MAX_WAIT = 60  # Reduced from 110 - saves ~2 hours total
 PAGES_PER_BATCH = 3  # Pages per session
 MAX_PAGES_PER_SESSION = 11  # Site limit for sequential clicking
 
@@ -40,7 +41,7 @@ class NHSmartScraper:
         self.all_businesses = []
         self.completed_pages = {}  # Changed to dict: {search_term: set(pages)}
         self.failed_pages = {}  # Changed to dict: {search_term: set(pages)}
-        self.total_pages = 175
+        self.total_pages = {}  # NEW: Track total pages per search term
         self.current_search_term = None
         self.load_state()
 
@@ -50,23 +51,18 @@ class NHSmartScraper:
             with open(STATE_FILE, 'r') as f:
                 state = json.load(f)
 
-                # Convert old format to new format if needed
-                if 'completed_pages' in state and isinstance(state['completed_pages'], list):
-                    # Old format - assume it was for "truck"
-                    self.completed_pages = {"truck": set(state['completed_pages'])}
-                    self.failed_pages = {"truck": set(state.get('failed_pages', []))}
-                else:
-                    # New format
-                    self.completed_pages = {term: set(pages) for term, pages in
-                                            state.get('completed_pages_by_term', {}).items()}
-                    self.failed_pages = {term: set(pages) for term, pages in
-                                         state.get('failed_pages_by_term', {}).items()}
+                self.completed_pages = {term: set(pages) for term, pages in
+                                        state.get('completed_pages_by_term', {}).items()}
+                self.failed_pages = {term: set(pages) for term, pages in state.get('failed_pages_by_term', {}).items()}
+                self.total_pages = state.get('total_pages_by_term')
 
                 self.current_search_term = state.get('current_search_term', SEARCH_TERMS[0])
 
                 print(f"Loaded previous state:")
                 for term in self.completed_pages:
-                    print(f"  {term}: {len(self.completed_pages.get(term, set()))} completed pages")
+                    completed = len(self.completed_pages.get(term, set()))
+                    total = self.total_pages.get(term, "?")
+                    print(f"  {term}: {completed} completed pages" + (f" (of {total})" if total != "?" else ""))
 
                 # Load existing businesses
                 if os.path.exists(PROGRESS_FILE):
@@ -79,6 +75,7 @@ class NHSmartScraper:
         state = {
             'completed_pages_by_term': {term: list(pages) for term, pages in self.completed_pages.items()},
             'failed_pages_by_term': {term: list(pages) for term, pages in self.failed_pages.items()},
+            'total_pages_by_term': self.total_pages,
             'current_search_term': self.current_search_term,
             'timestamp': datetime.now().isoformat()
         }
@@ -89,7 +86,10 @@ class NHSmartScraper:
         """Get the search term to work on"""
         for term in SEARCH_TERMS:
             completed = len(self.completed_pages.get(term, set()))
-            if completed < self.total_pages:
+            total = self.total_pages.get(term)
+
+            # If we don't know total pages yet, or haven't completed all pages
+            if total is None or completed < total:
                 return term
         return None
 
@@ -99,10 +99,14 @@ class NHSmartScraper:
             return []
 
         completed = self.completed_pages.get(self.current_search_term, set())
+        total = self.total_pages.get(self.current_search_term)
+
+        # If we don't know total pages yet, assume a large number
+        max_page = total if total else 999
 
         # Find the lowest uncompleted page
         start_page = None
-        for page in range(1, self.total_pages + 1):
+        for page in range(1, max_page + 1):
             if page not in completed:
                 start_page = page
                 break
@@ -112,7 +116,7 @@ class NHSmartScraper:
 
         # Get consecutive pages up to limit
         batch = []
-        for page in range(start_page, min(start_page + MAX_PAGES_PER_SESSION, self.total_pages + 1)):
+        for page in range(start_page, min(start_page + MAX_PAGES_PER_SESSION, max_page + 1)):
             if page not in completed:
                 batch.append(page)
             if len(batch) >= PAGES_PER_BATCH:
@@ -156,6 +160,16 @@ class NHSmartScraper:
                 try:
                     await page.wait_for_selector('table', timeout=30000)
                     await asyncio.sleep(2)
+
+                    # Detect total pages for this search term if we don't know yet
+                    if self.current_search_term not in self.total_pages:
+                        page_text = await page.inner_text('body')
+                        match = re.search(r'Page \d+ of (\d+)', page_text)
+                        if match:
+                            self.total_pages[self.current_search_term] = int(match.group(1))
+                            print(
+                                f"Detected {self.total_pages[self.current_search_term]} total pages for '{self.current_search_term}'")
+
                 except:
                     print("Search failed")
                     return businesses, pages_completed
@@ -206,6 +220,14 @@ class NHSmartScraper:
                         page_text = await page.inner_text('body')
                         if 'One moment, while we check your browser' in page_text:
                             print("Still blocked by browser check")
+                            break
+
+                    # Check if we've gone past the last page
+                    if self.current_search_term in self.total_pages:
+                        if f"Page {target_page} of" not in page_text:
+                            print(f"Page {target_page} doesn't exist - reached end of results")
+                            # Mark this search term as complete
+                            self.total_pages[self.current_search_term] = target_page - 1
                             break
 
                     # Extract businesses
@@ -326,7 +348,8 @@ class NHSmartScraper:
             if not batch:
                 # This term is done, move to next
                 completed = len(self.completed_pages.get(self.current_search_term, set()))
-                print(f"\nCompleted '{self.current_search_term}': {completed}/{self.total_pages} pages")
+                total = self.total_pages.get(self.current_search_term, "?")
+                print(f"\nCompleted '{self.current_search_term}': {completed}/{total} pages")
                 continue
 
             start_page = min(batch)
@@ -334,8 +357,8 @@ class NHSmartScraper:
 
             print(f"\n{'=' * 60}")
             print(f"SESSION: '{self.current_search_term}' - Pages {start_page} to {end_page}")
-            print(
-                f"Progress: {len(self.completed_pages.get(self.current_search_term, set()))}/{self.total_pages} pages")
+            total_for_term = self.total_pages.get(self.current_search_term, "?")
+            print(f"Progress: {len(self.completed_pages.get(self.current_search_term, set()))}/{total_for_term} pages")
             print(f"Time: {datetime.now().strftime('%H:%M:%S')}")
             print(f"{'=' * 60}")
 
@@ -399,18 +422,28 @@ async def main():
     print("SCRAPING COMPLETE")
     print("=" * 80)
 
-    total_completed = sum(len(pages) for pages in scraper.completed_pages.values())
-    total_expected = len(SEARCH_TERMS) * scraper.total_pages
+    # Calculate total completed across all terms
+    total_completed = 0
+    total_expected = 0
 
-    print(f"\nTotal pages completed: {total_completed}/{total_expected}")
-
+    print("\nResults by search term:")
     for term in SEARCH_TERMS:
         completed = len(scraper.completed_pages.get(term, set()))
+        total = scraper.total_pages.get(term, "unknown")
         failed = len(scraper.failed_pages.get(term, set()))
+
         print(f"\n'{term}':")
-        print(f"  Completed: {completed}/175 pages")
+        print(f"  Completed: {completed}" + (f"/{total}" if total != "unknown" else "") + " pages")
         if failed:
             print(f"  Failed: {failed} pages")
+
+        if isinstance(total, int):
+            total_completed += completed
+            total_expected += total
+
+    if total_expected > 0:
+        print(
+            f"\nOverall completion: {total_completed}/{total_expected} pages ({total_completed / total_expected * 100:.1f}%)")
 
     # Final data
     if os.path.exists(PROGRESS_FILE):
